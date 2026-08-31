@@ -14,15 +14,13 @@ const registerInformation: CommandInfo = {
     ],
 };
 
-registerCommand(registerInformation, function* (session, builder, args) {
+registerCommand(registerInformation, function* (session, _builder, args) {
     const selection = session.selection;
     const [min, max] = selection.getRange();
 
     const top = (<Pattern>args.get("top")).withContext(session, [min, max]);
     const middle = (<Pattern>args.get("middle")).withContext(session, [min, max]);
     const bottom = (<Pattern>args.get("bottom")).withContext(session, [min, max]);
-
-    const dimension = builder.dimension;
 
     const changed = yield* Jobs.run(session, 2, function* () {
         const surfaceHeights = new Map<string, number>();
@@ -33,7 +31,7 @@ registerCommand(registerInformation, function* (session, builder, args) {
         const selectionSize = selection.getBlockCount();
 
         for (const location of selection.getBlocks()) {
-            const block = dimension.getBlock(location);
+            const block = yield* Jobs.loadBlock(location);
 
             if (block && !block.isAir && !block.isLiquid) {
                 const key = `${location.x},${location.z}`;
@@ -60,7 +58,7 @@ registerCommand(registerInformation, function* (session, builder, args) {
             yield* history.trackRegion(record, min, max);
 
             for (const location of selection.getBlocks()) {
-                const block = dimension.getBlock(location);
+                const block = yield* Jobs.loadBlock(location);
 
                 if (block && !block.isAir && !block.isLiquid) {
                     const surfaceY = surfaceHeights.get(`${location.x},${location.z}`);
