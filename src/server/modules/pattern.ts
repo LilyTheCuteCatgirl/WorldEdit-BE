@@ -781,7 +781,25 @@ export class ChainPatternNode extends PatternNode {
     }
 
     getWeight(index: number) {
-        return this.weights?.[index] ?? 1 / this.nodes.length;
+        const weight = this.weights?.[index];
+        if (weight !== undefined) return weight;
+
+        let specifiedTotal = 0;
+        let unspecifiedCount = 0;
+
+        for (let i = 0; i < this.nodes.length; i++) {
+            const nodeWeight = this.weights?.[i];
+
+            if (nodeWeight === undefined) {
+                unspecifiedCount++;
+            } else {
+                specifiedTotal += nodeWeight;
+            }
+        }
+
+        const remainingWeight = Math.max(100 - specifiedTotal, 0);
+
+        return unspecifiedCount ? remainingWeight / unspecifiedCount : 0;
     }
 
     setWeight(index: number, weight: number) {
