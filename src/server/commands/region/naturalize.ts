@@ -25,7 +25,7 @@ registerCommand(registerInformation, function* (session, _builder, args) {
     const changed = yield* Jobs.run(session, 2, function* () {
         const surfaceHeights = new Map<string, number>();
 
-        yield Jobs.nextStep("Finding terrain surface...");
+        yield Jobs.nextStep("commands.wedit:naturalize.finding");
 
         let processed = 0;
         const selectionSize = selection.getBlockCount();
@@ -46,7 +46,7 @@ registerCommand(registerInformation, function* (session, _builder, args) {
             yield Jobs.setProgress(processed / selectionSize);
         }
 
-        yield Jobs.nextStep("Naturalizing terrain...");
+        yield Jobs.nextStep("commands.wedit:naturalize.naturalizing");
 
         const history = session.history;
         const record = history.record();
