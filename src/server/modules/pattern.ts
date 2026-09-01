@@ -797,9 +797,9 @@ export class ChainPatternNode extends PatternNode {
             }
         }
 
-        const remainingWeight = Math.max(100 - specifiedTotal, 0);
+        if (!unspecifiedCount) return 0;
 
-        return unspecifiedCount ? remainingWeight / unspecifiedCount : 0;
+        return Math.max(100 - specifiedTotal, 0) / unspecifiedCount;
     }
 
     setWeight(index: number, weight: number) {
