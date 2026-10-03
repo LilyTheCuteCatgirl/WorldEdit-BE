@@ -98,3 +98,62 @@ export function getCommandFunc(command: string) {
 export function getCommandInfo(command: string) {
     return commandList.get(command)[0];
 }
+
+system.afterEvents.scriptEventReceive.subscribe((event) => {
+    if (event.id !== "wedit:command") {
+        return;
+    }
+
+    const player = event.sourceEntity;
+
+    if (!(player instanceof Player)) {
+        return;
+    }
+
+    let message = event.message.trim();
+
+    if (!message) {
+        return;
+    }
+
+    const prefix = Server.command.prefix;
+
+    if (message.startsWith(prefix)) {
+        message = message.slice(prefix.length);
+    }
+
+    message = message.trimStart();
+
+    if (!message) {
+        return;
+    }
+
+    const separator = message.search(/\s/);
+
+    const command =
+        separator === -1
+            ? message
+            : message.slice(0, separator);
+
+    const args =
+        separator === -1
+            ? ""
+            : message.slice(separator + 1);
+
+    try {
+        Server.command.callCommand(
+            player,
+            command.toLowerCase(),
+            args
+        );
+    } catch (e) {
+        const errMsg = e.message
+            ? RawText.text(`${e.name}: `).append(
+                  "translate",
+                  e.message
+              )
+            : e;
+
+        printerr(errMsg, player, false);
+    }
+});
