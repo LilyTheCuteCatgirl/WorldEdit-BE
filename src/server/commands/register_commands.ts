@@ -1,10 +1,7 @@
 import { CommandInfo, Server, Thread, Timer, RawText, contentLog } from "@notbeer-api";
 import { getSession, hasSession, PlayerSession } from "../sessions.js";
 import { print, printerr } from "../util.js";
-import {
-    Player,
-    system,
-} from "@minecraft/server";
+import { Player, system } from "@minecraft/server";
 import { UnloadedChunksError } from "@modules/assert.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,29 +98,14 @@ system.afterEvents.scriptEventReceive.subscribe((event) => {
 
     const separator = message.search(/\s/);
 
-    const command =
-        separator === -1
-            ? message
-            : message.slice(0, separator);
+    const command = separator === -1 ? message : message.slice(0, separator);
 
-    const args =
-        separator === -1
-            ? ""
-            : message.slice(separator + 1);
+    const args = separator === -1 ? "" : message.slice(separator + 1);
 
     try {
-        Server.command.callCommand(
-            player,
-            command.toLowerCase(),
-            args
-        );
+        Server.command.callCommand(player, command.toLowerCase(), args);
     } catch (e) {
-        const errMsg = e.message
-            ? RawText.text(`${e.name}: `).append(
-                  "translate",
-                  e.message
-              )
-            : e;
+        const errMsg = e.message ? RawText.text(`${e.name}: `).append("translate", e.message) : e;
 
         printerr(errMsg, player, false);
     }
