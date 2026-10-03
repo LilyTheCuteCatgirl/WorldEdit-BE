@@ -216,20 +216,44 @@ export abstract class Shape {
                 const volume = regionVolume(chunkMin, chunkMax);
                 progress += volume;
             } else {
-                const blocks = [];
+                const blocks: Block[] = [];
+                const blockLocs: Vector3[] = [];
+
                 for (const blockLoc of regionIterateBlocks(chunkMin, chunkMax)) {
                     yield Jobs.setProgress(progress / volume);
                     progress++;
+
                     if (this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
-                        const block = yield* Jobs.loadBlock(blockLoc);
-                        if (simpleMask || mask.matchesBlock(block)) {
-                            blocks.push(block);
+                        if (simpleMask) {
+                            if (simplePattern) {
+                                blockLocs.push(blockLoc);
+                            } else {
+                                const block = yield* Jobs.loadBlock(blockLoc);
+                                blocks.push(block);
+                            }
+
                             blocksAffected++;
+                        } else {
+                            const block = yield* Jobs.loadBlock(blockLoc);
+
+                            if (mask.matchesBlock(block)) {
+                                if (simplePattern) {
+                                    blockLocs.push(blockLoc);
+                                } else {
+                                    blocks.push(block);
+                                }
+
+                                blocksAffected++;
+                            }
                         }
                     }
-                    yield;
                 }
-                if (blocks.length) volumes.push(simplePattern ? new ListBlockVolume(blocks) : blocks);
+
+                if (simplePattern && blockLocs.length) {
+                    volumes.push(new ListBlockVolume(blockLocs));
+                } else if (blocks.length) {
+                    volumes.push(blocks);
+                }
             }
         }
 
