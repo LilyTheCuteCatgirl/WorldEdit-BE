@@ -16,7 +16,7 @@ import { commandSubDef } from "library/@types/classes/CommandBuilder.js";
 import { RaiseBrush } from "server/brushes/raise_brush.js";
 import { Easing } from "@modules/easing.js";
 import { TerrainBrush } from "server/brushes/terrain_brush.js";
-import { getTerrainHeightmapNames, hasTerrainHeightmap } from "server/brushes/terrain_heightmaps.js";
+import { getTerrainHeightmapCategoryNames, getTerrainHeightmapNames, hasTerrainHeightmap } from "server/brushes/terrain_heightmaps.js";
 
 const registerInformation: CommandInfo = {
     name: "brush",
@@ -313,7 +313,10 @@ const terrainSubCommand = (session: PlayerSession, builder: Player, args: Map<st
 const terrainListSubCommand = (builder: Player) => {
     assertPermission(builder, (<commandSubDef>registerInformation.usage[9]).permission);
 
-    return RawText.translate("commands.wedit:brush.terrain.list").with(getTerrainHeightmapNames().join(", "));
+    const categories = getTerrainHeightmapCategoryNames().map((name) => `${name} (random)`);
+    const names = getTerrainHeightmapNames();
+
+    return RawText.translate("commands.wedit:brush.terrain.list").with([...categories, ...names].join(", "));
 };
 
 registerCommand(registerInformation, function (session, builder, args) {

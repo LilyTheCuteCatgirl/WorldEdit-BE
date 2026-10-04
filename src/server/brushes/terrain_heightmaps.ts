@@ -1,141 +1,169 @@
+import { terrainHeightmapData } from "./terrain_heightmap_data.js";
+
 export interface TerrainHeightmap {
     width: number;
     height: number;
     data: Uint8Array;
 }
 
-type HeightmapSampler = (x: number, z: number, distance: number) => number;
+interface EncodedTerrainHeightmap {
+    width: number;
+    height: number;
+    data: string;
+}
 
-function createHeightmap(sampler: HeightmapSampler, size = 65): TerrainHeightmap {
-    const data = new Uint8Array(size * size);
+const encodedHeightmaps: Record<string, EncodedTerrainHeightmap> = terrainHeightmapData;
 
-    for (let z = 0; z < size; z++) {
-        for (let x = 0; x < size; x++) {
-            const nx = (x / (size - 1)) * 2 - 1;
-            const nz = (z / (size - 1)) * 2 - 1;
+const decodedHeightmaps = new Map<string, TerrainHeightmap>();
 
-            const distance = Math.hypot(nx, nz);
+const heightmapCategories = new Map<string, string[]>();
 
-            const value = Math.min(1, Math.max(0, sampler(nx, nz, distance)));
+for (const name of Object.keys(encodedHeightmaps)) {
+    const category = name.replace(/\d+$/, "");
 
-            data[z * size + x] = Math.round(value * 255);
+    const categoryMaps = heightmapCategories.get(category);
+
+    if (categoryMaps) {
+        categoryMaps.push(name);
+    } else {
+        heightmapCategories.set(category, [name]);
+    }
+}
+
+for (const maps of heightmapCategories.values()) {
+    maps.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+const BASE64_LOOKUP = new Int16Array(128).fill(-1);
+
+for (let i = 0; i < BASE64_ALPHABET.length; i++) {
+    BASE64_LOOKUP[BASE64_ALPHABET.charCodeAt(i)] = i;
+}
+
+function decodeBase64(encoded: string) {
+    const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+
+    const output = new Uint8Array(Math.floor((encoded.length * 3) / 4) - padding);
+
+    let outputIndex = 0;
+
+    for (let i = 0; i < encoded.length; i += 4) {
+        const a = BASE64_LOOKUP[encoded.charCodeAt(i)];
+        const b = BASE64_LOOKUP[encoded.charCodeAt(i + 1)];
+
+        const c = encoded[i + 2] === "=" ? 0 : BASE64_LOOKUP[encoded.charCodeAt(i + 2)];
+
+        const d = encoded[i + 3] === "=" ? 0 : BASE64_LOOKUP[encoded.charCodeAt(i + 3)];
+
+        const value = (a << 18) | (b << 12) | (c << 6) | d;
+
+        if (outputIndex < output.length) {
+            output[outputIndex++] = (value >> 16) & 0xff;
+        }
+
+        if (outputIndex < output.length) {
+            output[outputIndex++] = (value >> 8) & 0xff;
+        }
+
+        if (outputIndex < output.length) {
+            output[outputIndex++] = value & 0xff;
         }
     }
 
-    return {
-        width: size,
-        height: size,
-        data,
-    };
+    return output;
 }
 
-function edgeFade(distance: number) {
-    if (distance >= 1) return 0;
-    if (distance <= 0.8) return 1;
+function getTerrainHeightmap(name: string) {
+    const cached = decodedHeightmaps.get(name);
 
-    const t = (distance - 0.8) / 0.2;
-
-    return 1 - t * t * (3 - 2 * t);
-}
-
-const mountain1 = createHeightmap((x, z, distance) => {
-    const mainPeak = Math.exp(-(x * x * 2.2 + z * z * 1.6));
-
-    const ridge = Math.exp(-(Math.pow(x + z * 0.35, 2) * 7 + z * z * 0.8)) * 0.35;
-
-    const shoulder = Math.exp(-(Math.pow(x - 0.35, 2) * 7 + Math.pow(z + 0.15, 2) * 5)) * 0.25;
-
-    return (mainPeak + ridge + shoulder) * edgeFade(distance);
-});
-
-const mountain2 = createHeightmap((x, z, distance) => {
-    const peak1 = Math.exp(-(Math.pow(x + 0.25, 2) * 5 + Math.pow(z + 0.1, 2) * 3));
-
-    const peak2 = Math.exp(-(Math.pow(x - 0.3, 2) * 8 + Math.pow(z - 0.2, 2) * 5)) * 0.75;
-
-    const ridge = Math.exp(-(Math.pow(x - z * 0.45, 2) * 10 + z * z)) * 0.3;
-
-    return Math.min(1, peak1 + peak2 + ridge) * edgeFade(distance);
-});
-
-const cliff1 = createHeightmap((x, z, distance) => {
-    const irregularity = Math.sin(z * 7) * 0.08 + Math.sin(z * 13) * 0.03;
-
-    const cliffPosition = x + irregularity;
-
-    const transition = Math.min(1, Math.max(0, (-cliffPosition + 0.18) / 0.36));
-
-    const cliff = transition * transition * (3 - 2 * transition);
-
-    return cliff * edgeFade(distance);
-});
-
-const mesa1 = createHeightmap((_x, _z, distance) => {
-    if (distance <= 0.45) {
-        return 1;
+    if (cached) {
+        return cached;
     }
 
-    if (distance >= 0.85) {
-        return 0;
-    }
+    const encoded = encodedHeightmaps[name];
 
-    const t = (distance - 0.45) / (0.85 - 0.45);
-
-    return 1 - t * t * (3 - 2 * t);
-});
-
-const volcano1 = createHeightmap((_x, _z, distance) => {
-    const ring = Math.exp(-Math.pow(distance - 0.48, 2) * 45);
-
-    return ring * edgeFade(distance);
-});
-
-const heightmaps = new Map<string, TerrainHeightmap>([
-    ["mountain1", mountain1],
-    ["mountain2", mountain2],
-    ["cliff1", cliff1],
-    ["mesa1", mesa1],
-    ["volcano1", volcano1],
-]);
-
-export function hasTerrainHeightmap(name: string) {
-    return heightmaps.has(name);
-}
-
-export function sampleTerrainHeightmap(name: string, u: number, v: number) {
-    const heightmap = heightmaps.get(name);
-
-    if (!heightmap) {
+    if (!encoded) {
         throw new Error(`Unknown terrain heightmap: ${name}`);
     }
 
-    const clampedU = Math.min(Math.max(u, 0), 1);
+    const data = decodeBase64(encoded.data);
 
+    if (data.length !== encoded.width * encoded.height) {
+        throw new Error(`Invalid terrain heightmap "${name}": expected ${encoded.width * encoded.height} bytes, got ${data.length}`);
+    }
+
+    const heightmap: TerrainHeightmap = {
+        width: encoded.width,
+        height: encoded.height,
+        data,
+    };
+
+    decodedHeightmaps.set(name, heightmap);
+
+    return heightmap;
+}
+
+export function hasTerrainHeightmap(name: string) {
+    return Object.prototype.hasOwnProperty.call(encodedHeightmaps, name) || heightmapCategories.has(name);
+}
+
+export function resolveTerrainHeightmap(name: string) {
+    if (Object.prototype.hasOwnProperty.call(encodedHeightmaps, name)) {
+        return name;
+    }
+
+    const categoryMaps = heightmapCategories.get(name);
+
+    if (!categoryMaps?.length) {
+        throw new Error(`Unknown terrain heightmap or category: ${name}`);
+    }
+
+    return categoryMaps[Math.floor(Math.random() * categoryMaps.length)];
+}
+
+export function sampleTerrainHeightmap(name: string, u: number, v: number) {
+    const heightmap = getTerrainHeightmap(name);
+
+    const clampedU = Math.min(Math.max(u, 0), 1);
     const clampedV = Math.min(Math.max(v, 0), 1);
 
-    const x = clampedU * (heightmap.width - 1);
+    const width = heightmap.width;
+    const height = heightmap.height;
+    const data = heightmap.data;
 
-    const z = clampedV * (heightmap.height - 1);
+    const x = clampedU * (width - 1);
+    const z = clampedV * (height - 1);
 
     const x0 = Math.floor(x);
     const z0 = Math.floor(z);
 
-    const x1 = Math.min(x0 + 1, heightmap.width - 1);
-
-    const z1 = Math.min(z0 + 1, heightmap.height - 1);
+    const x1 = Math.min(x0 + 1, width - 1);
+    const z1 = Math.min(z0 + 1, height - 1);
 
     const tx = x - x0;
     const tz = z - z0;
 
-    const getValue = (px: number, pz: number) => heightmap.data[pz * heightmap.width + px] / 255;
+    const topLeft = data[z0 * width + x0];
+    const topRight = data[z0 * width + x1];
 
-    const top = getValue(x0, z0) * (1 - tx) + getValue(x1, z0) * tx;
+    const bottomLeft = data[z1 * width + x0];
+    const bottomRight = data[z1 * width + x1];
 
-    const bottom = getValue(x0, z1) * (1 - tx) + getValue(x1, z1) * tx;
+    const top = topLeft * (1 - tx) + topRight * tx;
+    const bottom = bottomLeft * (1 - tx) + bottomRight * tx;
 
-    return top * (1 - tz) + bottom * tz;
+    return (top * (1 - tz) + bottom * tz) / 255;
 }
 
 export function getTerrainHeightmapNames() {
-    return [...heightmaps.keys()];
+    return Object.keys(encodedHeightmaps);
+}
+
+export function getTerrainHeightmapCategoryNames() {
+    return [...heightmapCategories.entries()]
+        .filter(([, maps]) => maps.length > 1)
+        .map(([name]) => name)
+        .sort((a, b) => a.localeCompare(b));
 }

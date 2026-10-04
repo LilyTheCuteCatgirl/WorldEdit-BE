@@ -7,7 +7,7 @@ import { CylinderShape } from "server/shapes/cylinder.js";
 import { modifyHeight } from "../commands/region/heightmap_func.js";
 import { PlayerSession } from "../sessions.js";
 import { brushTypes, Brush } from "./base_brush.js";
-import { sampleTerrainHeightmap } from "./terrain_heightmaps.js";
+import { resolveTerrainHeightmap, sampleTerrainHeightmap } from "./terrain_heightmaps.js";
 
 export type TerrainBrushMode = "pull" | "push";
 
@@ -29,7 +29,7 @@ export class TerrainBrush extends Brush {
     private stampRadius = -1;
     private stampHeightmap = "";
 
-    private rebuildStamp() {
+    private rebuildStamp(heightmap: string) {
         const radius = this.radius;
         const diameter = radius * 2 + 1;
 
@@ -48,7 +48,7 @@ export class TerrainBrush extends Brush {
                 const u = nx * 0.5 + 0.5;
                 const v = nz * 0.5 + 0.5;
 
-                const strength = sampleTerrainHeightmap(this.heightmap, u, v);
+                const strength = sampleTerrainHeightmap(heightmap, u, v);
 
                 if (strength <= 0) {
                     continue;
@@ -62,12 +62,12 @@ export class TerrainBrush extends Brush {
 
         this.stampDiameter = diameter;
         this.stampRadius = radius;
-        this.stampHeightmap = this.heightmap;
+        this.stampHeightmap = heightmap;
     }
 
-    private ensureStamp() {
-        if (!this.stamp || this.stampRadius !== this.radius || this.stampHeightmap !== this.heightmap) {
-            this.rebuildStamp();
+    private ensureStamp(heightmap: string) {
+        if (!this.stamp || this.stampRadius !== this.radius || this.stampHeightmap !== heightmap) {
+            this.rebuildStamp(heightmap);
         }
     }
 
@@ -95,7 +95,9 @@ export class TerrainBrush extends Brush {
     public *apply(locations: Vector[], session: PlayerSession) {
         const center = locations[locations.length - 1];
 
-        this.ensureStamp();
+        const resolvedHeightmap = resolveTerrainHeightmap(this.heightmap);
+
+        this.ensureStamp(resolvedHeightmap);
 
         yield* modifyHeight(
             session,
