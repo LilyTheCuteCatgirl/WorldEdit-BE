@@ -214,7 +214,6 @@ export abstract class Shape {
         // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
         // Bulk pattern fills can skip blocks in newly loaded chunks.
         // Temporarily force all patterns through the per-block loading path.
-        const simplePattern = false;
         const simpleMask = mask.isSimple();
         const volume = regionVolume(min, max);
         const inShapeFunc = this.customHollow ? "inShape" : "inShapeHollow";
@@ -223,32 +222,50 @@ export abstract class Shape {
             yield Jobs.setProgress(progress / volume);
 
             const chunkStatus = this.getChunkStatus(Vector.sub(chunkMin, loc).floor(), Vector.sub(chunkMax, loc).floor(), this.genVars);
-            if (chunkStatus === ChunkStatus.FULL && simpleMask && simplePattern) {
-                // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
-                // Due to the bug above, the optimized volume path can skip blocks in newly loaded chunks.
-                // Complex patterns therefore use the per-block loading path instead.
+            if (chunkStatus === ChunkStatus.FULL && simpleMask) {
                 const volume = regionVolume(chunkMin, chunkMax);
+
                 progress += volume;
                 blocksAffected += volume;
+
                 volumes.push(new BlockVolume(chunkMin, chunkMax));
             } else if (chunkStatus === ChunkStatus.EMPTY) {
                 const volume = regionVolume(chunkMin, chunkMax);
                 progress += volume;
             } else {
-                const blocks = [];
+                const blockLocs: Vector3[] = [];
+
+                let blocksSinceYield = 0;
+
                 for (const blockLoc of regionIterateBlocks(chunkMin, chunkMax)) {
-                    yield Jobs.setProgress(progress / volume);
                     progress++;
-                    if (this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
-                        const block = yield* Jobs.loadBlock(blockLoc);
-                        if (simpleMask || mask.matchesBlock(block)) {
-                            blocks.push(block);
-                            blocksAffected++;
-                        }
+
+                    if (++blocksSinceYield >= 64) {
+                        blocksSinceYield = 0;
+                        yield Jobs.setProgress(progress / volume);
                     }
-                    yield;
+
+                    if (!this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
+                        continue;
+                    }
+
+                    if (simpleMask) {
+                        blockLocs.push(blockLoc);
+                        blocksAffected++;
+                        continue;
+                    }
+
+                    const block = yield* Jobs.loadBlock(blockLoc);
+
+                    if (mask.matchesBlock(block)) {
+                        blockLocs.push(blockLoc);
+                        blocksAffected++;
+                    }
                 }
-                if (blocks.length) volumes.push(simplePattern ? new ListBlockVolume(blocks) : blocks);
+
+                if (blockLocs.length) {
+                    volumes.push(new ListBlockVolume(blockLocs));
+                }
             }
         }
 
@@ -295,6 +312,7 @@ export abstract class Shape {
             const globalMask = (options?.ignoreGlobalMask ?? false) ? new Mask() : session.globalMask;
             activeMask = (!activeMask ? globalMask : globalMask ? activeMask.intersect(globalMask) : activeMask)?.withContext(session);
             const simpleMask = activeMask.isSimple();
+            const simplePattern = pattern.isSimple();
 
             // Collect blocks and areas that will be changed.
             yield Jobs.nextStep("commands.wedit:blocks.calculating");
@@ -317,9 +335,65 @@ export abstract class Shape {
                     if ((!activeMask || activeMask.matchesBlock(volume)) && pattern.setBlock(volume)) count++;
                     progress++;
                 } else {
-                    if (Jobs.inContext()) yield* Jobs.loadArea(volume.getMin(), volume.getMax());
-                    count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
-                    progress += volume.getCapacity();
+                    if (Jobs.inContext()) {
+                        yield* Jobs.loadArea(volume.getMin(), volume.getMax());
+                    }
+
+                    const capacity = volume.getCapacity();
+
+                    if (capacity === 16 * 16 * 16) {
+                        // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
+                        // The first bulk fill initializes newly loaded subchunks.
+                        // A second fill is needed for the full volume to place correctly.
+                        pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+
+                        yield;
+
+                        count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+                        progress += capacity;
+                    } else {
+                        if (Jobs.inContext()) {
+                            yield* Jobs.loadArea(volume.getMin(), volume.getMax());
+                        }
+
+                        const capacity = volume.getCapacity();
+
+                        if (simplePattern && volume instanceof BlockVolume && capacity === 16 * 16 * 16) {
+                            // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
+                            // The first bulk fill initializes newly loaded subchunks.
+                            // A second fill is needed for the full volume to place correctly.
+                            pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+
+                            yield;
+
+                            count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+
+                            progress += capacity;
+                        } else {
+                            // Complex patterns and partial/detail volumes use the safe
+                            // per-block path to avoid MCPE-240572.
+                            let blocksSinceYield = 0;
+
+                            for (const blockLoc of volume.getBlockLocationIterator()) {
+                                let block = dimension.getBlock(blockLoc);
+
+                                if (!block && Jobs.inContext()) {
+                                    block = yield* Jobs.loadBlock(blockLoc);
+                                }
+
+                                if (block && (!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) {
+                                    count++;
+                                }
+
+                                progress++;
+
+                                if (++blocksSinceYield >= 64) {
+                                    blocksSinceYield = 0;
+                                    yield;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
