@@ -347,6 +347,8 @@ export abstract class Shape {
                         } else {
                             // Complex patterns and partial/detail volumes use the safe
                             // per-block path to avoid MCPE-240572.
+                            let blocksSinceYield = 0;
+
                             for (const blockLoc of volume.getBlockLocationIterator()) {
                                 let block = dimension.getBlock(blockLoc);
 
@@ -360,7 +362,10 @@ export abstract class Shape {
 
                                 progress++;
 
-                                yield;
+                                if (++blocksSinceYield >= 64) {
+                                    blocksSinceYield = 0;
+                                    yield;
+                                }
                             }
                         }
                     }
