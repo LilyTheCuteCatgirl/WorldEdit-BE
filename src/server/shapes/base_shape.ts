@@ -216,9 +216,15 @@ export abstract class Shape {
             } else {
                 const blockLocs: Vector3[] = [];
 
+                let blocksSinceYield = 0;
+
                 for (const blockLoc of regionIterateBlocks(chunkMin, chunkMax)) {
-                    yield Jobs.setProgress(progress / volume);
                     progress++;
+
+                    if (++blocksSinceYield >= 64) {
+                        blocksSinceYield = 0;
+                        yield Jobs.setProgress(progress / volume);
+                    }
 
                     if (!this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
                         continue;
