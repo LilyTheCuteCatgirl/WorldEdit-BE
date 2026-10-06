@@ -195,7 +195,7 @@ export abstract class Shape {
         // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
         // Bulk pattern fills can skip blocks in newly loaded chunks.
         // Temporarily force all patterns through the per-block loading path.
-        const simplePattern = false;
+        const simplePattern = pattern.isSimple();
         const simpleMask = mask.isSimple();
         const volume = regionVolume(min, max);
         const inShapeFunc = this.customHollow ? "inShape" : "inShapeHollow";
@@ -322,9 +322,46 @@ export abstract class Shape {
                     if ((!activeMask || activeMask.matchesBlock(volume)) && pattern.setBlock(volume)) count++;
                     progress++;
                 } else {
-                    if (Jobs.inContext()) yield* Jobs.loadArea(volume.getMin(), volume.getMax());
-                    count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
-                    progress += volume.getCapacity();
+                    if (Jobs.inContext()) {
+                        yield* Jobs.loadArea(volume.getMin(), volume.getMax());
+                    }
+
+                    const capacity = volume.getCapacity();
+
+                    if (capacity === 16 * 16 * 16) {
+                        // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
+                        // The first bulk fill initializes newly loaded subchunks.
+                        // A second fill is needed for the full volume to place correctly.
+                        pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+
+                        yield;
+
+                        count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+                        progress += capacity;
+                    } else {
+                        // Partial subchunks at the edge of the selection cannot reliably
+                        // be initialized by the bulk-fill workaround, so process them safely.
+                        for (const blockLoc of volume.getBlockLocationIterator()) {
+                            let block = dimension.getBlock(blockLoc);
+
+                            if (!block && Jobs.inContext()) {
+                                block = yield* Jobs.loadBlock(blockLoc);
+                            }
+
+                            if (!block) {
+                                progress++;
+                                continue;
+                            }
+
+                            if ((!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) {
+                                count++;
+                            }
+
+                            progress++;
+
+                            yield;
+                        }
+                    }
                 }
             }
 
