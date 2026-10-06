@@ -195,7 +195,6 @@ export abstract class Shape {
         // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
         // Bulk pattern fills can skip blocks in newly loaded chunks.
         // Temporarily force all patterns through the per-block loading path.
-        const simplePattern = pattern.isSimple();
         const simpleMask = mask.isSimple();
         const volume = regionVolume(min, max);
         const inShapeFunc = this.customHollow ? "inShape" : "inShapeHollow";
@@ -215,43 +214,32 @@ export abstract class Shape {
                 const volume = regionVolume(chunkMin, chunkMax);
                 progress += volume;
             } else {
-                const blocks: Block[] = [];
                 const blockLocs: Vector3[] = [];
 
                 for (const blockLoc of regionIterateBlocks(chunkMin, chunkMax)) {
                     yield Jobs.setProgress(progress / volume);
                     progress++;
 
-                    if (this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
-                        if (simpleMask) {
-                            if (simplePattern) {
-                                blockLocs.push(blockLoc);
-                            } else {
-                                const block = yield* Jobs.loadBlock(blockLoc);
-                                blocks.push(block);
-                            }
+                    if (!this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
+                        continue;
+                    }
 
-                            blocksAffected++;
-                        } else {
-                            const block = yield* Jobs.loadBlock(blockLoc);
+                    if (simpleMask) {
+                        blockLocs.push(blockLoc);
+                        blocksAffected++;
+                        continue;
+                    }
 
-                            if (mask.matchesBlock(block)) {
-                                if (simplePattern) {
-                                    blockLocs.push(blockLoc);
-                                } else {
-                                    blocks.push(block);
-                                }
+                    const block = yield* Jobs.loadBlock(blockLoc);
 
-                                blocksAffected++;
-                            }
-                        }
+                    if (mask.matchesBlock(block)) {
+                        blockLocs.push(blockLoc);
+                        blocksAffected++;
                     }
                 }
 
-                if (simplePattern && blockLocs.length) {
+                if (blockLocs.length) {
                     volumes.push(new ListBlockVolume(blockLocs));
-                } else if (blocks.length) {
-                    volumes.push(blocks);
                 }
             }
         }
