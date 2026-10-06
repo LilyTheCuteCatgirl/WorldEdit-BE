@@ -204,13 +204,12 @@ export abstract class Shape {
             yield Jobs.setProgress(progress / volume);
 
             const chunkStatus = this.getChunkStatus(Vector.sub(chunkMin, loc).floor(), Vector.sub(chunkMax, loc).floor(), this.genVars);
-            if (chunkStatus === ChunkStatus.FULL && simpleMask && simplePattern) {
-                // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
-                // Due to the bug above, the optimized volume path can skip blocks in newly loaded chunks.
-                // Complex patterns therefore use the per-block loading path instead.
+            if (chunkStatus === ChunkStatus.FULL && simpleMask) {
                 const volume = regionVolume(chunkMin, chunkMax);
+
                 progress += volume;
                 blocksAffected += volume;
+
                 volumes.push(new BlockVolume(chunkMin, chunkMax));
             } else if (chunkStatus === ChunkStatus.EMPTY) {
                 const volume = regionVolume(chunkMin, chunkMax);
@@ -300,6 +299,7 @@ export abstract class Shape {
             const globalMask = (options?.ignoreGlobalMask ?? false) ? new Mask() : session.globalMask;
             activeMask = (!activeMask ? globalMask : globalMask ? activeMask.intersect(globalMask) : activeMask)?.withContext(session);
             const simpleMask = activeMask.isSimple();
+            const simplePattern = pattern.isSimple();
 
             // Collect blocks and areas that will be changed.
             yield Jobs.nextStep("commands.wedit:blocks.calculating");
@@ -339,27 +339,41 @@ export abstract class Shape {
                         count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
                         progress += capacity;
                     } else {
-                        // Partial subchunks at the edge of the selection cannot reliably
-                        // be initialized by the bulk-fill workaround, so process them safely.
-                        for (const blockLoc of volume.getBlockLocationIterator()) {
-                            let block = dimension.getBlock(blockLoc);
+                        if (Jobs.inContext()) {
+                            yield* Jobs.loadArea(volume.getMin(), volume.getMax());
+                        }
 
-                            if (!block && Jobs.inContext()) {
-                                block = yield* Jobs.loadBlock(blockLoc);
-                            }
+                        const capacity = volume.getCapacity();
 
-                            if (!block) {
-                                progress++;
-                                continue;
-                            }
-
-                            if ((!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) {
-                                count++;
-                            }
-
-                            progress++;
+                        if (simplePattern && volume instanceof BlockVolume && capacity === 16 * 16 * 16) {
+                            // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
+                            // The first bulk fill initializes newly loaded subchunks.
+                            // A second fill is needed for the full volume to place correctly.
+                            pattern.fillBlocks(dimension, volume, maskInSimpleFill);
 
                             yield;
+
+                            count += pattern.fillBlocks(dimension, volume, maskInSimpleFill);
+
+                            progress += capacity;
+                        } else {
+                            // Complex patterns and partial/detail volumes use the safe
+                            // per-block path to avoid MCPE-240572.
+                            for (const blockLoc of volume.getBlockLocationIterator()) {
+                                let block = dimension.getBlock(blockLoc);
+
+                                if (!block && Jobs.inContext()) {
+                                    block = yield* Jobs.loadBlock(blockLoc);
+                                }
+
+                                if (block && (!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) {
+                                    count++;
+                                }
+
+                                progress++;
+
+                                yield;
+                            }
                         }
                     }
                 }
