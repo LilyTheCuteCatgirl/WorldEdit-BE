@@ -71,7 +71,7 @@ const registerInformation: CommandInfo = {
         },
         {
             subName: "struct",
-            aliases: ["st"],
+            aliases: ["st", "structure"],
             permission: "worldedit.brush.struct",
             description: "commands.wedit:brush.description.struct",
             args: [
