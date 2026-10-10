@@ -214,6 +214,7 @@ export abstract class Shape {
         // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
         // Bulk pattern fills can skip blocks in newly loaded chunks.
         // Temporarily force all patterns through the per-block loading path.
+        const simplePattern = pattern.isSimple();
         const simpleMask = mask.isSimple();
         const volume = regionVolume(min, max);
         const inShapeFunc = this.customHollow ? "inShape" : "inShapeHollow";
@@ -326,7 +327,7 @@ export abstract class Shape {
                 yield Jobs.setProgress(progress / blocksAffected);
                 if (Array.isArray(volume)) {
                     for (let block of volume) {
-                        if (!block.isValid && Jobs.inContext()) block = yield* Jobs.loadBlock(block);
+                        if (!block.isValid && Jobs.inContext()) block = yield* Jobs.loadBlock(loc);
                         if ((!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) count++;
                         progress++;
                     }
