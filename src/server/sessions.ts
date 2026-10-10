@@ -99,6 +99,11 @@ export class PlayerSession extends EventEmitter<{ gradientListUpdated: [list: st
      */
     public debugMode = false;
 
+    /* Multiplier for enhanced movement speed.
+     * 1 is the original speed.
+     */
+    public speedMultiplier = 1;
+
     /**
      * The amount of blocks that can be changed in one operation.
      */
@@ -227,9 +232,9 @@ export class PlayerSession extends EventEmitter<{ gradientListUpdated: [list: st
     }
 
     private updateSpeed() {
-        const thrustH = 0.375;
-        const thrustV = 0.375;
-        const speedCap = 5;
+        const thrustH = 0.375 * this.speedMultiplier;
+        const thrustV = 0.375 * this.speedMultiplier;
+        const speedCap = 5 * this.speedMultiplier;
 
         const movement = this.player.inputInfo.getMovementVector();
         const up = this.player.inputInfo.getButtonState(InputButton.Jump) === ButtonState.Pressed;
