@@ -191,11 +191,7 @@ export abstract class Shape {
         let blocksAffected = 0;
         const volumes: (Block[] | BlockVolumeBase)[] = [];
 
-        // const simplePattern = pattern.isSimple();
-        // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
-        // Bulk pattern fills can skip blocks in newly loaded chunks.
-        // Temporarily force all patterns through the per-block loading path.
-        const simplePattern = false;
+        const simplePattern = pattern.isSimple();
         const simpleMask = mask.isSimple();
         const volume = regionVolume(min, max);
         const inShapeFunc = this.customHollow ? "inShape" : "inShapeHollow";
@@ -204,10 +200,7 @@ export abstract class Shape {
             yield Jobs.setProgress(progress / volume);
 
             const chunkStatus = this.getChunkStatus(Vector.sub(chunkMin, loc).floor(), Vector.sub(chunkMax, loc).floor(), this.genVars);
-            if (chunkStatus === ChunkStatus.FULL && simpleMask && simplePattern) {
-                // FIXME: https://bugs.mojang.com/browse/MCPE/issues/MCPE-240572
-                // Due to the bug above, the optimized volume path can skip blocks in newly loaded chunks.
-                // Complex patterns therefore use the per-block loading path instead.
+            if (chunkStatus === ChunkStatus.FULL && simpleMask) {
                 const volume = regionVolume(chunkMin, chunkMax);
                 progress += volume;
                 blocksAffected += volume;
@@ -289,7 +282,7 @@ export abstract class Shape {
                 yield Jobs.setProgress(progress / blocksAffected);
                 if (Array.isArray(volume)) {
                     for (let block of volume) {
-                        if (!block.isValid && Jobs.inContext()) block = yield* Jobs.loadBlock(block);
+                        if (!block.isValid && Jobs.inContext()) block = yield* Jobs.loadBlock(loc);
                         if ((!maskInSimpleFill || maskInSimpleFill.matchesBlock(block)) && pattern.setBlock(block)) count++;
                         progress++;
                     }
