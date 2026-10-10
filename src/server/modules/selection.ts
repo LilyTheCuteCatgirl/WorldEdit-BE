@@ -7,10 +7,10 @@ import { CylinderShape } from "../shapes/cylinder.js";
 import { getWorldHeightLimits } from "../util.js";
 import config from "config.js";
 import { ConvexShape } from "server/shapes/convex.js";
+import { PolygonShape } from "../shapes/polygon.js";
 
-// TODO: Add other selection modes
 // meow i added a new selection mode :3 *proud cat noise* (i want pets and treats now)
-export const selectionModes = ["cuboid", "extend", "sphere", "ellipsoid", "cylinder", "convex", "volume"] as const;
+export const selectionModes = ["cuboid", "extend", "sphere", "ellipsoid", "cylinder", "convex", "poly", "volume"] as const;
 export type selectMode = (typeof selectionModes)[number];
 
 export abstract class Selection {
@@ -70,6 +70,10 @@ export class DefaultSelection extends Selection {
     private _points: Vector[] = [];
 
     get isEmpty() {
+        if (this._mode === "poly") {
+            return !this.shape;
+        }
+
         let points = 0;
         for (const point of this._points) if (point) points++;
         return points === 0 || points === 1;
@@ -107,46 +111,55 @@ export class DefaultSelection extends Selection {
             throw "worldedit.selection.noPrimary";
         }
 
-        if (this._points.length <= index) {
-            this._points.length = index + 1;
-        }
+        if (this._mode === "poly") {
+            if (index === 0) {
+                this._points = [loc];
+            } else {
+                this._points.push(loc);
+            }
+        } else {
+            if (this._points.length <= index) {
+                this._points.length = index + 1;
+            }
 
-        if (index == 0 && this._mode == "convex") {
-            this._points = [loc];
-        } else if (index == 0 && this._mode != "cuboid") {
-            this._points = [loc, loc.offset(0, 0, 0)];
-        } else if (this._mode == "cuboid") {
-            this._points[index] = loc;
-            if (this._mode != "cuboid") this._points.length = 1;
-        } else if (this._mode == "extend") {
-            this._points[0] = Vector.min(this._points[0], this._points[1]).min(loc).floor();
-            this._points[1] = Vector.max(this._points[0], this._points[1]).max(loc).floor();
-        } else if (this._mode == "sphere") {
-            const radius = Math.round(Vector.sub(loc, this._points[0]).length);
-            this._points[1] = new Vector(radius, 0, 0).add(this._points[0]).floor();
-        } else if (this._mode == "ellipsoid") {
-            const previous = Vector.sub(this._points[1], this._points[0]);
-            const current = Vector.sub(loc, this._points[0]);
-            const radiusX = Math.max(Math.abs(previous.x), Math.abs(current.x));
-            const radiusY = Math.max(Math.abs(previous.y), Math.abs(current.y));
-            const radiusZ = Math.max(Math.abs(previous.z), Math.abs(current.z));
-            this._points[1] = this._points[0].offset(radiusX, radiusY, radiusZ).floor();
-        } else if (this._mode == "cylinder") {
-            const prevVec = Vector.sub(this._points[1], this._points[0]).mul([1, 0, 1]);
-            const vec = Vector.sub(loc, this._points[0]).mul([1, 0, 1]);
-            const min = Vector.min(this._points[0], this._points[1]).min(loc);
-            const max = Vector.max(this._points[0], this._points[1]).max(loc);
-            const radius = Math.round(Math.max(vec.length, prevVec.length));
-            this._points[1] = new Vector(radius, 0, 0).add(this._points[0]).floor();
-            this._points[0].y = min.y;
-            this._points[1].y = max.y;
-        } else if (this._mode == "convex") {
-            if (!this._points[1]) this._points[1] = loc;
-            else this._points.push(loc);
+            if (index == 0 && this._mode == "convex") {
+                this._points = [loc];
+            } else if (index == 0 && this._mode != "cuboid") {
+                this._points = [loc, loc.offset(0, 0, 0)];
+            } else if (this._mode == "cuboid") {
+                this._points[index] = loc;
+                if (this._mode != "cuboid") this._points.length = 1;
+            } else if (this._mode == "extend") {
+                this._points[0] = Vector.min(this._points[0], this._points[1]).min(loc).floor();
+                this._points[1] = Vector.max(this._points[0], this._points[1]).max(loc).floor();
+            } else if (this._mode == "sphere") {
+                const radius = Math.round(Vector.sub(loc, this._points[0]).length);
+                this._points[1] = new Vector(radius, 0, 0).add(this._points[0]).floor();
+            } else if (this._mode == "ellipsoid") {
+                const previous = Vector.sub(this._points[1], this._points[0]);
+                const current = Vector.sub(loc, this._points[0]);
+                const radiusX = Math.max(Math.abs(previous.x), Math.abs(current.x));
+                const radiusY = Math.max(Math.abs(previous.y), Math.abs(current.y));
+                const radiusZ = Math.max(Math.abs(previous.z), Math.abs(current.z));
+                this._points[1] = this._points[0].offset(radiusX, radiusY, radiusZ).floor();
+            } else if (this._mode == "cylinder") {
+                const prevVec = Vector.sub(this._points[1], this._points[0]).mul([1, 0, 1]);
+                const vec = Vector.sub(loc, this._points[0]).mul([1, 0, 1]);
+                const min = Vector.min(this._points[0], this._points[1]).min(loc);
+                const max = Vector.max(this._points[0], this._points[1]).max(loc);
+                const radius = Math.round(Math.max(vec.length, prevVec.length));
+                this._points[1] = new Vector(radius, 0, 0).add(this._points[0]).floor();
+                this._points[0].y = min.y;
+                this._points[1].y = max.y;
+            } else if (this._mode == "convex") {
+                if (!this._points[1]) this._points[1] = loc;
+                else this._points.push(loc);
+            }
         }
 
         const [min, max] = getWorldHeightLimits(this.player.dimension);
-        this._points.forEach((p) => (p.y = Math.min(Math.max(p.y, min), max)));
+        this._points.forEach((point) => (point.y = Math.min(Math.max(point.y, min), max)));
+
         this.updateShape();
     }
 
@@ -185,6 +198,8 @@ export class DefaultSelection extends Selection {
 
         if (this.isCuboid) {
             return regionVolume(this._points[0], this._points[1]);
+        } else if (this._mode === "poly") {
+            return (this.shape?.[0] as PolygonShape)?.getBlockCount() ?? 0;
         } else if (this._mode == "sphere") {
             const radius = Vector.sub(this._points[1], this._points[0]).length;
             return Math.round((4 / 3) * Math.PI * Math.pow(radius, 3));
@@ -209,6 +224,16 @@ export class DefaultSelection extends Selection {
     }
 
     protected updateShape() {
+        if (this._mode === "poly") {
+            if (this._points.length >= 3) {
+                const polygon = new PolygonShape(this._points);
+                this.shape = polygon.isValid ? [polygon, Vector.ZERO] : undefined;
+            } else {
+                this.shape = undefined;
+            }
+            return;
+        }
+
         if (this.isEmpty) {
             this.shape = undefined;
         } else if (this.isCuboid) {
