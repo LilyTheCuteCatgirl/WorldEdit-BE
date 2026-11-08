@@ -133,8 +133,7 @@ export class Pattern implements CustomArgType {
     }
 
     fillBlocks(dimension: Dimension, volume: BlockVolumeBase, mask?: Mask) {
-        const filter = mask?.getSimpleBlockFilter();
-        filter!.excludeTypes = ["minecraft:obsidian"];
+        const filter = mask?.getSimpleBlockFilter() ?? {};
         if (this.isSimple()) {
             if (!this.simpleCache) {
                 if (this.block instanceof BlockPatternNode) {
