@@ -57,7 +57,21 @@ export class SphereShape extends Shape {
             const thickness = genVars.thickness;
             const hLocal = [relLoc.x / (genVars.radiiOff[0] - thickness), relLoc.y / (genVars.radiiOff[1] - thickness), relLoc.z / (genVars.radiiOff[2] - thickness)];
             if (hLocal[0] * hLocal[0] + hLocal[1] * hLocal[1] + hLocal[2] * hLocal[2] < 1.0) {
-                return false;
+                const [rx, ry, rz] = genVars.radiiOff as [number, number, number];
+
+                const x = Math.abs(relLoc.x);
+                const y = Math.abs(relLoc.y);
+                const z = Math.abs(relLoc.z);
+
+                // Check whether the block has an exposed face.
+                const exposedX = ((x + thickness) / rx) ** 2 + (y / ry) ** 2 + (z / rz) ** 2 > 1;
+                const exposedY = (x / rx) ** 2 + ((y + thickness) / ry) ** 2 + (z / rz) ** 2 > 1;
+                const exposedZ = (x / rx) ** 2 + (y / ry) ** 2 + ((z + thickness) / rz) ** 2 > 1;
+
+                // Only remove blocks that are truly interior.
+                if (!exposedX && !exposedY && !exposedZ) {
+                    return false;
+                }
             }
         }
 
