@@ -398,6 +398,7 @@ export class Pattern implements CustomArgType {
     }
 
     static parseJSON(json: patternNodeJSON): Pattern {
+        const chainExplicitOverrides: Array<[ChainPatternNode, boolean]> = [];
         function buildNode({ type, settings, children }: patternNodeJSON): PatternNode {
             let node!: PatternNode;
             switch (type) {
@@ -473,6 +474,9 @@ export class Pattern implements CustomArgType {
                     break;
                 case "chain":
                     node = new ChainPatternNode(null);
+                    if (typeof settings?.explicitNoiseWeights === "boolean") {
+                        chainExplicitOverrides.push([node as ChainPatternNode, settings.explicitNoiseWeights]);
+                    }
                     break;
                 default:
                     throw new Error(`Unknown pattern type: ${type}`);
@@ -485,6 +489,7 @@ export class Pattern implements CustomArgType {
         const pattern = new Pattern();
         pattern.block = buildNode(json);
         pattern.block.optimize();
+        for (const [node, value] of chainExplicitOverrides) node.hasExplicitWeights = value;
         return pattern;
     }
 
@@ -799,9 +804,29 @@ export class InputPatternNode extends PatternNode {
     }
 }
 
-function collectEvenPatternNodes(node: PatternNode): PatternNode[] {
-    const patterns: PatternNode[] = [];
+// Percent weights belong to the noise palette, not to a random block-by-block chain.
+// Keep metadata separate so unweighted noise follows the exact previous code path.
+const weightedNoisePalettes = new WeakMap<PatternNode[], number[]>();
+const weightedNoiseSamples = new WeakMap<Noise, number[]>();
 
+function collectEvenPatternNodes(node: PatternNode): PatternNode[] {
+    if (node instanceof PercentPatternNode) {
+        const patterns = [node.nodes[0]];
+        weightedNoisePalettes.set(patterns, [100]);
+        return patterns;
+    }
+
+    if (node instanceof ChainPatternNode && node.hasExplicitWeights) {
+        const patterns = [...node.nodes];
+        weightedNoisePalettes.set(
+            patterns,
+            patterns.map((_, i) => Math.max(0, node.getWeight(i)))
+        );
+        return patterns;
+    }
+
+    // Original behavior, unchanged for patterns with no explicit percentages.
+    const patterns: PatternNode[] = [];
     const collect = (current: PatternNode) => {
         if (current instanceof ChainPatternNode && current.evenDistribution) {
             for (const child of current.nodes) collect(child);
@@ -814,9 +839,71 @@ function collectEvenPatternNodes(node: PatternNode): PatternNode[] {
     return patterns;
 }
 
-function getPatternFromValue(patterns: PatternNode[], value: number) {
+function getPatternFromValue(patterns: PatternNode[], value: number, weights: number[] = weightedNoisePalettes.get(patterns)) {
     const clamped = Math.min(Math.max(value, 0), 1 - Number.EPSILON);
+
+    if (weights) {
+        const total = weights.reduce((sum, weight) => sum + Math.max(0, weight), 0);
+        if (total > 0) {
+            const target = clamped * total;
+            let cumulative = 0;
+            for (let i = 0; i < patterns.length; i++) {
+                cumulative += Math.max(0, weights[i] ?? 0);
+                if (target < cumulative) return patterns[i];
+            }
+        }
+    }
+
+    // Original unweighted index calculation, unchanged.
     return patterns[Math.floor(clamped * patterns.length)];
+}
+
+// Convert each noise field to an approximate percentile using its own distribution.
+// This keeps the shapes coherent while letting percentages affect their relative area.
+function noisePercentile(noise: Noise, value: number, sample: (noise: Noise, x: number, y: number, z: number) => number) {
+    let sorted = weightedNoiseSamples.get(noise);
+    if (!sorted) {
+        sorted = [];
+        for (let i = 0; i < 512; i++) {
+            sorted.push(sample(noise, (i + 0.314) * 0.754877666, (i + 0.527) * 0.569840296, (i + 0.731) * 0.438447187));
+        }
+        sorted.sort((a, b) => a - b);
+        weightedNoiseSamples.set(noise, sorted);
+    }
+
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (sorted[mid] < value) lo = mid + 1;
+        else hi = mid;
+    }
+
+    if (lo === 0) return 0.5 / sorted.length;
+    if (lo === sorted.length) return 1 - 0.5 / sorted.length;
+    const lower = sorted[lo - 1];
+    const upper = sorted[lo];
+    const fraction = upper > lower ? (value - lower) / (upper - lower) : 0.5;
+    return Math.max(0.000001, Math.min(0.999999, (lo - 0.5 + fraction) / sorted.length));
+}
+
+// Gumbel-max: if percentiles are uniform, each option wins with probability
+// proportional to its weight. Noise varies smoothly across space, so regions do too.
+function weightedNoiseIndex(noises: Noise[], weights: number[], x: number, y: number, z: number, sample: (noise: Noise, x: number, y: number, z: number) => number) {
+    let bestIndex = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < noises.length; i++) {
+        const weight = weights[i] ?? 0;
+        if (weight <= 0) continue;
+        const value = sample(noises[i], x, y, z);
+        const percentile = noisePercentile(noises[i], value, sample);
+        const score = Math.log(weight) - Math.log(-Math.log(percentile));
+        if (score > bestScore) {
+            bestScore = score;
+            bestIndex = i;
+        }
+    }
+    return bestIndex;
 }
 
 export class BlobPatternNode extends PatternNode {
@@ -829,6 +916,7 @@ export class BlobPatternNode extends PatternNode {
     private points: { [key: number]: Vector } = {};
 
     private isRadial = false;
+    private activePattern: PatternNode;
 
     constructor(
         token: Token,
@@ -841,7 +929,8 @@ export class BlobPatternNode extends PatternNode {
 
     prepare() {
         super.prepare();
-        this.isRadial = this.nodes[0] instanceof GradientPatternNode && this.nodes[0].cardinal === "radial";
+        this.activePattern = this.nodes[0] instanceof PercentPatternNode ? this.nodes[0].nodes[0] : this.nodes[0];
+        this.isRadial = this.activePattern instanceof GradientPatternNode && this.activePattern.cardinal === "radial";
         this.perms = {};
         this.ranges = {};
         this.points = {};
@@ -882,9 +971,9 @@ export class BlobPatternNode extends PatternNode {
 
         if (this.isRadial) {
             const subGradientRadius = this.ranges[closestCell].range[1].distanceTo(this.ranges[closestCell].range[0]) / 2;
-            return this.nodes[0].getPermutation(block, { ...context, gradientRadius: subGradientRadius });
+            return this.activePattern.getPermutation(block, { ...context, gradientRadius: subGradientRadius });
         } else {
-            if (!(closestCell in this.perms)) this.perms[closestCell] = this.nodes[0].getPermutation(block, context);
+            if (!(closestCell in this.perms)) this.perms[closestCell] = this.activePattern.getPermutation(block, context);
             return this.perms[closestCell];
         }
     }
@@ -927,6 +1016,11 @@ export class PerlinPatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) => noise.perlin3D(x, y, z));
+            return this.patterns[index].getPermutation(block, context);
+        }
 
         let bestIndex = 0;
         let bestValue = -Infinity;
@@ -1032,6 +1126,13 @@ export class CrackedPatternNode extends PatternNode {
         const b = Math.max(nearestCell, secondNearestCell);
 
         const hash = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663)) >>> 0;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const cracks = this.patterns.slice(1);
+            const color = getPatternFromValue(cracks, hash / 4294967296, weights.slice(1));
+            return color.getPermutation(block, context);
+        }
+
         const crackIndex = 1 + (hash % (this.patterns.length - 1));
 
         return this.patterns[crackIndex].getPermutation(block, context);
@@ -1086,7 +1187,14 @@ export class WoodPatternNode extends PatternNode {
         const g = noiseValue * this.bands;
         const grain = g - Math.floor(g);
 
-        return getPatternFromValue(this.patterns, grain).getPermutation(block, context);
+        const weights = weightedNoisePalettes.get(this.patterns);
+        const value = weights
+            ? noisePercentile(this.noise, grain, (noise, x, y, z) => {
+                  const grainValue = noise.perlin3D(x, y, z) * this.bands;
+                  return grainValue - Math.floor(grainValue);
+              })
+            : grain;
+        return getPatternFromValue(this.patterns, value).getPermutation(block, context);
     }
 
     toJSON() {
@@ -1130,6 +1238,13 @@ export class TurbulencePatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) =>
+                noise.turbulence3D(x, y, z, this.octaves, this.persistence, this.lacunarity)
+            );
+            return this.patterns[index].getPermutation(block, context);
+        }
         let bestIndex = 0;
         let bestValue = -Infinity;
 
@@ -1194,7 +1309,14 @@ export class MarblePatternNode extends PatternNode {
         const distortion = (this.noise.octaveNoise3D(x, y, z, this.octaves, this.persistence, this.lacunarity) - 0.5) * this.distortion;
         const bandValue = (Math.sin((x + y * 0.35 + z) * Math.PI * 2 * this.bands + distortion) + 1) / 2;
 
-        return getPatternFromValue(this.patterns, bandValue).getPermutation(block, context);
+        const weights = weightedNoisePalettes.get(this.patterns);
+        const value = weights
+            ? noisePercentile(this.noise, bandValue, (noise, sx, sy, sz) => {
+                  const warp = (noise.octaveNoise3D(sx, sy, sz, this.octaves, this.persistence, this.lacunarity) - 0.5) * this.distortion;
+                  return (Math.sin((sx + sy * 0.35 + sz) * Math.PI * 2 * this.bands + warp) + 1) / 2;
+              })
+            : bandValue;
+        return getPatternFromValue(this.patterns, value).getPermutation(block, context);
     }
 
     toJSON() {
@@ -1238,6 +1360,13 @@ export class FbmPatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) =>
+                noise.octaveNoise3D(x, y, z, this.octaves, this.persistence, this.lacunarity)
+            );
+            return this.patterns[index].getPermutation(block, context);
+        }
         let bestIndex = 0;
         let bestValue = -Infinity;
 
@@ -1302,6 +1431,16 @@ export class VeinsPatternNode extends PatternNode {
         const veinPatterns = this.patterns.slice(1);
         const veinValue = (ridge - veinStart) / (1 - veinStart);
 
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            if (this.width <= 0) return this.patterns[0].getPermutation(block, context);
+            const sample = (noise: Noise, x: number, y: number, z: number) => noise.ridged3D(x, y, z);
+            const minPercentile = noisePercentile(this.noise, veinStart, sample);
+            const currentPercentile = noisePercentile(this.noise, ridge, sample);
+            const selectedValue = (currentPercentile - minPercentile) / Math.max(Number.EPSILON, 1 - minPercentile);
+            return getPatternFromValue(veinPatterns, selectedValue, weights.slice(1)).getPermutation(block, context);
+        }
+
         return getPatternFromValue(veinPatterns, veinValue).getPermutation(block, context);
     }
 
@@ -1344,6 +1483,11 @@ export class WarpedPatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) => noise.warpedPerlin3D(x, y, z, this.strength));
+            return this.patterns[index].getPermutation(block, context);
+        }
         let bestIndex = 0;
         let bestValue = -Infinity;
 
@@ -1397,6 +1541,11 @@ export class SimplexPatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) => noise.simplex3D(x, y, z));
+            return this.patterns[index].getPermutation(block, context);
+        }
         let bestIndex = 0;
         let bestValue = -Infinity;
 
@@ -1450,6 +1599,11 @@ export class ValuePatternNode extends PatternNode {
         }
 
         const loc = block.location;
+        const weights = weightedNoisePalettes.get(this.patterns);
+        if (weights) {
+            const index = weightedNoiseIndex(this.noise, weights, loc.x / this.size, loc.y / this.size, loc.z / this.size, (noise, x, y, z) => noise.value3D(x, y, z));
+            return this.patterns[index].getPermutation(block, context);
+        }
         let bestIndex = 0;
         let bestValue = -Infinity;
 
@@ -1509,7 +1663,9 @@ export class PingPongPatternNode extends PatternNode {
         const loc = block.location;
         const value = this.noise.pingPong3D(loc.x / this.size, loc.y / this.size, loc.z / this.size, this.octaves, this.persistence, this.lacunarity, this.strength);
 
-        return getPatternFromValue(this.patterns, value).getPermutation(block, context);
+        const weights = weightedNoisePalettes.get(this.patterns);
+        const selectedValue = weights ? noisePercentile(this.noise, value, (noise, x, y, z) => noise.pingPong3D(x, y, z, this.octaves, this.persistence, this.lacunarity, this.strength)) : value;
+        return getPatternFromValue(this.patterns, selectedValue).getPermutation(block, context);
     }
 
     toJSON() {
@@ -1527,6 +1683,7 @@ export class ChainPatternNode extends PatternNode {
     readonly variableOps = true;
 
     public evenDistribution = true;
+    public hasExplicitWeights = false;
 
     private weights: (number | undefined)[] = [];
     private cumWeights: number[] = [];
@@ -1598,6 +1755,7 @@ export class ChainPatternNode extends PatternNode {
             const pattern = patterns.shift();
             if (pattern instanceof PercentPatternNode) {
                 this.evenDistribution = false;
+                this.hasExplicitWeights = true;
                 this.nodes.push(pattern.nodes[0]);
                 this.weights.push(pattern.percent);
             } else {
@@ -1628,6 +1786,7 @@ export class ChainPatternNode extends PatternNode {
     toJSON() {
         return {
             type: "chain",
+            settings: { explicitNoiseWeights: this.hasExplicitWeights },
             children: this.nodes.map((node, i) => {
                 if (!this.evenDistribution && this.weights[i] !== undefined) {
                     const percentNode = new PercentPatternNode(null, this.weights[i]);
