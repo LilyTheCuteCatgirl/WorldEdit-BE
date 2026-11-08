@@ -989,6 +989,8 @@ export class CrackedPatternNode extends PatternNode {
 
         let nearest = Infinity;
         let secondNearest = Infinity;
+        let nearestCell = 0;
+        let secondNearestCell = 0;
 
         for (const offset of this.offsets) {
             const locX = cellLoc.x + offset.x;
@@ -1007,18 +1009,32 @@ export class CrackedPatternNode extends PatternNode {
 
             if (distance < nearest) {
                 secondNearest = nearest;
+                secondNearestCell = nearestCell;
+
                 nearest = distance;
+                nearestCell = neighbour;
             } else if (distance < secondNearest) {
                 secondNearest = distance;
+                secondNearestCell = neighbour;
             }
         }
 
         const crackDistance = secondNearest - nearest;
 
         const basePattern = this.patterns[0] ?? this.nodes[0];
-        const crackPattern = this.patterns[1] ?? basePattern;
 
-        return (crackDistance <= this.thickness ? crackPattern : basePattern).getPermutation(block, context);
+        if (crackDistance > this.thickness || this.patterns.length < 2) {
+            return basePattern.getPermutation(block, context);
+        }
+
+        // Use the two closest cells to choose a consistent crack color.
+        const a = Math.min(nearestCell, secondNearestCell);
+        const b = Math.max(nearestCell, secondNearestCell);
+
+        const hash = (Math.imul(a, 73856093) ^ Math.imul(b, 19349663)) >>> 0;
+        const crackIndex = 1 + (hash % (this.patterns.length - 1));
+
+        return this.patterns[crackIndex].getPermutation(block, context);
     }
 
     toJSON() {
