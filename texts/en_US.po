@@ -464,6 +464,9 @@ msgid "commands.wedit:blocks.calculating"
 msgstr "Calculating shape..."
 msgid "commands.wedit:blocks.generating"
 msgstr "Generating blocks..."
+msgid "commands.wedit:blocks.placing"
+msgstr "Placing blocks..."
+
 msgid "commands.wedit:blocks.calculating_generating"
 msgstr "Calculating and Generating blocks..."
 msgid "commands.wedit:transform.getting"
@@ -1141,3 +1144,8 @@ msgstr "To learn more about this addon, you can go to its online documentation h
 
 msgid "howtoplay.category.minecraft"
 msgstr "Minecraft"
+
+msgid "worldedit.job.finished"
+msgstr "Finished!"
+msgid "worldedit.job.loadingChunks"
+msgstr "Loading Chunks..."
