@@ -586,8 +586,8 @@ export class RegionBuffer {
     private delete() {
         const thread = new Thread();
         thread.start(function* (self: RegionBuffer) {
-            for (const structure of Object.values(self.extraBlockData)) world.structureManager.delete(structure), yield;
-            for (const structure of Object.values(self.structures)) world.structureManager.delete(structure), yield;
+            for (const structure of Object.values(self.extraBlockData)) (world.structureManager.delete(structure), yield);
+            for (const structure of Object.values(self.structures)) (world.structureManager.delete(structure), yield);
             if (self.structure) world.structureManager.delete(self.structure);
             self.size = Vector.ZERO;
             self.volume = 0;
@@ -929,5 +929,4 @@ const mappings = {
         true_true_2: new Vector(0, -0.5, -1),
         true_true_3: new Vector(0, -0.5, 1),
     },
-    // TODO: Support glow lychen
 } as const;

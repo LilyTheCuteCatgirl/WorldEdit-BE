@@ -250,7 +250,7 @@ export abstract class Shape {
 
         if (!Jobs.inContext()) assertCanBuildWithin(player, min, max);
 
-        const history = options?.recordHistory ?? true ? session.history : undefined;
+        const history = (options?.recordHistory ?? true) ? session.history : undefined;
         const record = history?.record();
 
         if (!canGenerate) {
@@ -265,9 +265,8 @@ export abstract class Shape {
             this.genVars = {};
             this.prepGeneration(this.genVars, options);
 
-            // TODO: Localize
             let activeMask = mask ?? new Mask();
-            const globalMask = options?.ignoreGlobalMask ?? false ? new Mask() : session.globalMask;
+            const globalMask = (options?.ignoreGlobalMask ?? false) ? new Mask() : session.globalMask;
             activeMask = (!activeMask ? globalMask : globalMask ? activeMask.intersect(globalMask) : activeMask)?.withContext(session);
             const simpleMask = activeMask.isSimple();
 
