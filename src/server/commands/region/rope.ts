@@ -74,8 +74,18 @@ registerCommand(registerInformation, function* (session, builder, args) {
 
                 const right = new Vector(center.x + perpendicularX * halfWidth, center.y, center.z + perpendicularZ * halfWidth).add(0.5).floor();
 
+                let previous: Vector | undefined;
+
                 for (const block of plotLine(left, right)) {
                     blocks.add(block);
+
+                    // Fill the gaps created by diagonal line steps.
+                    if (previous && previous.x !== block.x && previous.z !== block.z) {
+                        blocks.add(new Vector(block.x, block.y, previous.z));
+                        blocks.add(new Vector(previous.x, block.y, block.z));
+                    }
+
+                    previous = block;
                 }
             }
 
