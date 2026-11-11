@@ -110,6 +110,7 @@ import "./navigation/thru.js";
 import "./navigation/ascend.js";
 import "./navigation/descend.js";
 import "./navigation/ceil.js";
+import "./navigation/togglespeed.js";
 
 import "./tool/tool.js";
 import "./tool/superpickaxe.js";
