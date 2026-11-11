@@ -83,6 +83,7 @@ import "./region/rope.js";
 import "./region/path.js";
 import "./region/center.js";
 import "./region/outlines.js";
+import "./region/naturalize.js";
 
 import "./utilities/fill.js";
 import "./utilities/fillr.js";
