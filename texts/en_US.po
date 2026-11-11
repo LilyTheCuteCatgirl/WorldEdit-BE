@@ -452,7 +452,8 @@ msgid "worldedit.tool.fixedBind"
 msgstr "The tool on this item cannot be removed or replaced."
 
 msgid "worldedit.permission.granted"
-msgstr "§eYou have been given WorldEdit permissions. Go to (Settings > How to Play > Quick Start) for a guide.§r"
+msgstr "§eYou have been given WorldEdit permissions. Go to (Settings > How to Play > Quick Start) for a guide. §6This is a test version by LilyTheCatgirl. It is not 100% finished and may contain bugs. Please report any bugs you find!§r"
+
 msgid "worldedit.permission.revoked"
 msgstr "§eYour WorldEdit permissions have been removed.§r"
 
