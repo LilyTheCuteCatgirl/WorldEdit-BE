@@ -209,20 +209,43 @@ export abstract class Shape {
                 const volume = regionVolume(chunkMin, chunkMax);
                 progress += volume;
             } else {
-                const blocks = [];
+                const blocks: Block[] = [];
+                const blockLocs: Vector3[] = [];
+                let blocksSinceProgress = 0;
+
                 for (const blockLoc of regionIterateBlocks(chunkMin, chunkMax)) {
-                    yield Jobs.setProgress(progress / volume);
                     progress++;
+
+                    if (++blocksSinceProgress >= 64) {
+                        blocksSinceProgress = 0;
+                        yield Jobs.setProgress(progress / volume);
+                    }
+
                     if (this[inShapeFunc](Vector.sub(blockLoc, loc).floor(), this.genVars)) {
-                        const block = yield* Jobs.loadBlock(blockLoc);
-                        if (simpleMask || mask.matchesBlock(block)) {
-                            blocks.push(block);
+                        if (simplePattern && simpleMask) {
+                            // No need to load the existing block.
+                            // The fill operation can use its location directly.
+                            blockLocs.push(blockLoc);
                             blocksAffected++;
+                        } else {
+                            const block = yield* Jobs.loadBlock(blockLoc);
+
+                            if (simpleMask || mask.matchesBlock(block)) {
+                                blocks.push(block);
+                                blocksAffected++;
+                            }
                         }
                     }
+
                     yield;
                 }
-                if (blocks.length) volumes.push(simplePattern ? new ListBlockVolume(blocks) : blocks);
+                if (blockLocs.length) {
+                    volumes.push(new ListBlockVolume(blockLocs));
+                }
+
+                if (blocks.length) {
+                    volumes.push(simplePattern ? new ListBlockVolume(blocks) : blocks);
+                }
             }
         }
 
