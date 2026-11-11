@@ -4,15 +4,33 @@ import { CommandInfo, RawText, Vector } from "@notbeer-api";
 import { registerCommand } from "../register_commands.js";
 import { fluidLookPositions } from "./drain.js";
 import { floodFill } from "./floodfill_func.js";
+import { assertSelection } from "@modules/assert.js";
+import { Mask } from "@modules/mask.js";
+import { Pattern } from "@modules/pattern.js";
 
 const registerInformation: CommandInfo = {
     name: "fixlava",
     permission: "worldedit.utility.fixlava",
     description: "commands.wedit:fixlava.description",
-    usage: [{ name: "radius", type: "float" }],
+    usage: [{ flag: "s" }, { name: "radius", type: "float", default: -1 }],
 };
 
 registerCommand(registerInformation, function* (session, builder, args) {
+    if (args.has("s")) {
+        assertSelection(session);
+
+        const [shape, loc] = session.selection.getShape();
+        const count = yield* Jobs.run(
+            session,
+            2,
+            shape.generate(loc, new Pattern("lava"), new Mask("lava"), session, {
+                ignoreGlobalMask: true,
+            })
+        );
+
+        return RawText.translate("commands.wedit:blocks.changed").with(`${count}`);
+    }
+
     const dimension = builder.dimension;
     const playerBlock = session.getPlacementPosition();
     let fixlavaStart: Vector | undefined;
